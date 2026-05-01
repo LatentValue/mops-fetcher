@@ -56,8 +56,7 @@ if st.button("Get Data") and ticker:
             current_year = datetime.now().year
             prior_year = current_year - 1
             
-            # We need to pull data starting from Jan 1st of TWO years ago 
-            # so we have a baseline to calculate YoY growth for the prior year.
+            # Pull data starting from Jan 1st of TWO years ago
             start_year = current_year - 2
             start_date = f"{start_year}-01-01"
             
@@ -69,30 +68,20 @@ if st.button("Get Data") and ticker:
             if fm_data.get('status') == 200 and fm_data.get('data'):
                 df = pd.DataFrame(fm_data['data'])
                 
-                # Ensure data is sorted chronologically
                 df = df.sort_values(by=['revenue_year', 'revenue_month'])
-                
-                # Map month numbers to actual names (e.g., 1 -> January)
                 df['Month_Name'] = df['revenue_month'].apply(lambda x: calendar.month_name[x])
                 
-                # Create a copy of the dataframe to act as the "Prior Year" data baseline
                 df_prior = df[['revenue_year', 'revenue_month', 'revenue']].copy()
-                df_prior['revenue_year'] += 1  # Shift the year forward by 1 to align with current year
+                df_prior['revenue_year'] += 1  
                 df_prior.rename(columns={'revenue': 'Prior Year Revenue'}, inplace=True)
                 
-                # Merge the current data with the prior year data side-by-side
                 merged_df = pd.merge(df, df_prior, on=['revenue_year', 'revenue_month'], how='left')
-                
-                # Calculate the Year-over-Year (YoY) Growth Percentage
                 merged_df['YoY Growth'] = ((merged_df['revenue'] / merged_df['Prior Year Revenue']) - 1) * 100
                 
-                # FILTER: Only keep the Current Year and the Prior Year for display
+                # Filter for Current and Prior Year only
                 merged_df = merged_df[merged_df['revenue_year'].isin([current_year, prior_year])]
-                
-                # Sort descending to get the newest dates at the top
                 merged_df = merged_df.sort_values(by=['revenue_year', 'revenue_month'], ascending=[False, False])
                 
-                # Rename columns for the final display
                 display_df = merged_df.copy()
                 display_df.rename(columns={
                     'revenue_year': 'Year',
@@ -100,16 +89,38 @@ if st.button("Get Data") and ticker:
                     'revenue': 'Current Revenue (TWD)'
                 }, inplace=True)
                 
-                # Format numbers with commas, and percentages with +/-, limiting decimals
                 display_df['Current Revenue (TWD)'] = display_df['Current Revenue (TWD)'].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "N/A")
                 display_df['Prior Year Revenue'] = display_df['Prior Year Revenue'].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "N/A")
                 display_df['YoY Growth'] = display_df['YoY Growth'].apply(lambda x: f"{x:+.2f}%" if pd.notnull(x) else "N/A")
                 
-                # Select only the columns we want to show
                 final_table = display_df[['Year', 'Month', 'Current Revenue (TWD)', 'Prior Year Revenue', 'YoY Growth']]
                 
-                # Render the dataframe in Streamlit
-                st.dataframe(final_table, use_container_width=True, hide_index=True)
+                # --- NEW LOGIC: Inject a spacer row when the year changes ---
+                rows = []
+                prev_year = None
+                for index, row in final_table.iterrows():
+                    # If we have moved to a new year (and it's not the first row), add a blank row
+                    if prev_year is not None and row['Year'] != prev_year:
+                        rows.append({'Year': '', 'Month': '---', 'Current Revenue (TWD)': '', 'Prior Year Revenue': '', 'YoY Growth': ''})
+                    rows.append(row.to_dict())
+                    prev_year = row['Year']
+                
+                final_spaced_table = pd.DataFrame(rows)
+
+                # --- NEW LOGIC: Color code the YoY Column ---
+                def highlight_yoy(val):
+                    if not isinstance(val, str) or val in ['', 'N/A', '---']:
+                        return ''
+                    if val.startswith('+'):
+                        return 'color: #16a34a;' # Green
+                    elif val.startswith('-'):
+                        return 'color: #dc2626;' # Red
+                    return ''
+                
+                # Apply the styling and render the dataframe
+                styled_table = final_spaced_table.style.applymap(highlight_yoy, subset=['YoY Growth'])
+                st.dataframe(styled_table, use_container_width=True, hide_index=True)
+
             else:
                  st.warning(f"No revenue data found for {ticker} over the requested period.")
                  
