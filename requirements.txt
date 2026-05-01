@@ -1,3 +1,5 @@
 streamlit
 cloudscraper
 beautifulsoup4
+pandas
+lxml
