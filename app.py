@@ -5,6 +5,10 @@ import re
 from bs4 import BeautifulSoup
 import pandas as pd
 import io
+import urllib3
+
+# Suppress the insecure request warnings since we are intentionally bypassing SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- 1. Web App User Interface Setup ---
 st.set_page_config(page_title="MOPS Briefing & Revenue Fetcher", page_icon="📈")
@@ -54,8 +58,9 @@ if st.button("Get Data") and ticker:
             mops_main = "https://mops.twse.com.tw/mops/web/t05st10_ifrs"
             mops_ajax = "https://mops.twse.com.tw/mops/web/ajax_t05st10_ifrs"
             
-            # Step A: Visit main page to get the session cookie (Bypasses WAF)
-            scraper.get(mops_main)
+            # Step A: Visit main page to get the session cookie
+            # Added verify=False to bypass the SSL Certificate error
+            scraper.get(mops_main, verify=False)
             
             # Step B: Query the AJAX endpoint for the table
             payload = {
@@ -76,7 +81,8 @@ if st.button("Get Data") and ticker:
                 'Referer': mops_main
             }
             
-            mops_resp = scraper.post(mops_ajax, data=payload, headers=headers)
+            # Added verify=False here as well
+            mops_resp = scraper.post(mops_ajax, data=payload, headers=headers, verify=False)
             
             if "FOR SECURITY REASONS" in mops_resp.text:
                 st.error("MOPS Firewall blocked the request.")
@@ -88,13 +94,12 @@ if st.button("Get Data") and ticker:
                 
                 target_table = None
                 for df in tables:
-                    # MOPS revenue tables usually have multiple columns (Month, current year, last year, YoY change)
+                    # MOPS revenue tables usually have multiple columns
                     if len(df.columns) >= 4 and len(df) > 1:
                         target_table = df
                         break
                         
                 if target_table is not None:
-                    # Display the extracted table cleanly in Streamlit
                     st.dataframe(target_table, use_container_width=True)
                 else:
                     st.warning("Could not extract a valid table from the MOPS page.")
