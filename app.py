@@ -95,11 +95,10 @@ if st.button("Get Data") and ticker:
                 
                 final_table = display_df[['Year', 'Month', 'Current Revenue (TWD)', 'Prior Year Revenue', 'YoY Growth']]
                 
-                # --- NEW LOGIC: Inject a spacer row when the year changes ---
+                # --- Inject a spacer row when the year changes ---
                 rows = []
                 prev_year = None
                 for index, row in final_table.iterrows():
-                    # If we have moved to a new year (and it's not the first row), add a blank row
                     if prev_year is not None and row['Year'] != prev_year:
                         rows.append({'Year': '', 'Month': '---', 'Current Revenue (TWD)': '', 'Prior Year Revenue': '', 'YoY Growth': ''})
                     rows.append(row.to_dict())
@@ -107,7 +106,7 @@ if st.button("Get Data") and ticker:
                 
                 final_spaced_table = pd.DataFrame(rows)
 
-                # --- NEW LOGIC: Color code the YoY Column ---
+                # --- Color code the YoY Column ---
                 def highlight_yoy(val):
                     if not isinstance(val, str) or val in ['', 'N/A', '---']:
                         return ''
@@ -117,8 +116,8 @@ if st.button("Get Data") and ticker:
                         return 'color: #dc2626;' # Red
                     return ''
                 
-                # Apply the styling and render the dataframe
-                styled_table = final_spaced_table.style.applymap(highlight_yoy, subset=['YoY Growth'])
+                # Fix: Changed applymap to map to support the latest Pandas versions
+                styled_table = final_spaced_table.style.map(highlight_yoy, subset=['YoY Growth'])
                 st.dataframe(styled_table, use_container_width=True, hide_index=True)
 
             else:
