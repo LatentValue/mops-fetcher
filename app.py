@@ -5,11 +5,7 @@ import html
 import re
 from bs4 import BeautifulSoup
 import pandas as pd
-import io
-import urllib3
-
-# Suppress the insecure request warnings for the MOPS connection
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from datetime import datetime, timedelta
 
 # --- 1. Web App User Interface Setup ---
 st.set_page_config(page_title="MOPS Briefing & Revenue Fetcher", page_icon="📈")
@@ -50,65 +46,48 @@ if st.button("Get Data") and ticker:
 
     st.divider()
 
-    # --- 3. Monthly Revenue Fetching (Direct from MOPS -> Needs standard requests) ---
-    st.markdown("### 📊 Monthly Revenue")
-    st.info("Data pulled directly from MOPS. Note: MOPS groups data by the current calendar year.")
+    # --- 3. Monthly Revenue Fetching (Using FinMind API to bypass MOPS WAF) ---
+    st.markdown("### 📊 Monthly Revenue (Trailing 12 Months)")
+    st.info("Data sourced via FinMind Open API (Aggregated from MOPS)")
     
-    with st.spinner("Bypassing MOPS firewall and parsing revenue tables..."):
+    with st.spinner("Fetching revenue data..."):
         try:
-            # Set up a standard session with SSL verification disabled
-            mops_session = requests.Session()
-            mops_session.verify = False
+            # Calculate the date exactly 1 year (365 days) ago
+            start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
             
-            # Standard browser headers to bypass the basic MOPS WAF
-            mops_session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Origin': 'https://mops.twse.com.tw'
-            })
-
-            mops_main = "https://mops.twse.com.tw/mops/web/t05st10_ifrs"
-            mops_ajax = "https://mops.twse.com.tw/mops/web/ajax_t05st10_ifrs"
+            # Query FinMind's API for the specific dataset
+            finmind_url = f"https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockMonthRevenue&data_id={ticker}&start_date={start_date}"
             
-            # Step A: Visit main page to get the session cookie
-            mops_session.get(mops_main)
+            fm_resp = requests.get(finmind_url, timeout=10)
+            fm_data = fm_resp.json()
             
-            # Step B: Query the AJAX endpoint for the table
-            payload = {
-                'encodeURIComponent': '1',
-                'step': '1',
-                'firstin': '1',
-                'off': '1',
-                'queryName': 'co_id',
-                'inpuType': 'co_id',
-                'TYPEK': 'all',
-                'isnew': 'true',
-                'co_id': ticker
-            }
-            
-            # Add the Referer specifically for the POST request
-            post_headers = {'Referer': mops_main}
-            
-            mops_resp = mops_session.post(mops_ajax, data=payload, headers=post_headers)
-            
-            if "FOR SECURITY REASONS" in mops_resp.text:
-                st.error("MOPS Firewall blocked the request.")
-            elif "查無資料" in mops_resp.text:
-                st.warning("No revenue data found for this ticker on MOPS.")
-            else:
-                # Step C: Use Pandas to read the raw HTML table
-                tables = pd.read_html(io.StringIO(mops_resp.text))
+            if fm_data.get('status') == 200 and fm_data.get('data'):
+                # Convert the JSON data directly into a Pandas DataFrame
+                df = pd.DataFrame(fm_data['data'])
                 
-                target_table = None
-                for df in tables:
-                    # MOPS revenue tables usually have multiple columns
-                    if len(df.columns) >= 4 and len(df) > 1:
-                        target_table = df
-                        break
-                        
-                if target_table is not None:
-                    st.dataframe(target_table, use_container_width=True)
-                else:
-                    st.warning("Could not extract a valid table from the MOPS page.")
+                # Format the table to be clean and readable
+                if 'date' in df.columns and 'revenue' in df.columns:
+                    # Select only the relevant columns and rename them
+                    display_df = df[['date', 'revenue_year', 'revenue_month', 'revenue']].copy()
+                    display_df.rename(columns={
+                        'date': 'Report Date',
+                        'revenue_year': 'Year',
+                        'revenue_month': 'Month',
+                        'revenue': 'Revenue (TWD)'
+                    }, inplace=True)
                     
+                    # Add commas to the revenue numbers (e.g., 1000000 -> 1,000,000)
+                    display_df['Revenue (TWD)'] = display_df['Revenue (TWD)'].apply(lambda x: f"{x:,.0f}")
+                    
+                    # Sort so the newest month is at the very top
+                    display_df = display_df.sort_values(by='Report Date', ascending=False).reset_index(drop=True)
+                    
+                    # Display the final, polished table
+                    st.dataframe(display_df, use_container_width=True)
+                else:
+                    st.warning("Data format from API was unexpected.")
+            else:
+                 st.warning(f"No revenue data found for {ticker} over the last 12 months.")
+                 
         except Exception as e:
             st.error(f"Error fetching Revenue: {e}")
